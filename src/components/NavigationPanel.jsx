@@ -1,275 +1,214 @@
-import { useState, useEffect } from 'react';
-import { MapPin, Navigation, X, Volume2, VolumeX } from 'lucide-react';
+import { MapContainer, TileLayer, Marker, Popup, useMap, Circle, Polyline } from 'react-leaflet';
+import L from 'leaflet';
+import { useEffect, useState } from 'react';
+import 'leaflet/dist/leaflet.css';
 
-export default function NavigationPanel({ salon, ubicacionUsuario, onClose, onNavigationStart }) {
-  const [navegando, setNavegando] = useState(false);
-  const [distancia, setDistancia] = useState(null);
-  const [tiempo, setTiempo] = useState(null);
-  const [instrucciones, setInstrucciones] = useState([]);
-  const [pasoActual, setPasoActual] = useState(0);
-  const [sonidoActivo, setSonidoActivo] = useState(true);
+// Iconos personalizados
+const iconoAula = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41]
+});
 
-  // Calcular distancia usando Haversine formula
-  const calcularDistancia = (lat1, lon1, lat2, lon2) => {
-    const R = 6371; // Radio de la tierra en km
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-              Math.sin(dLon / 2) * Math.sin(dLon / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c;
-  };
+const iconoLaboratorio = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-orange.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41]
+});
 
-  // Calcular rumbo (bearing) entre dos puntos
-  const calcularRumbo = (lat1, lon1, lat2, lon2) => {
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const y = Math.sin(dLon) * Math.cos(lat2 * Math.PI / 180);
-    const x = Math.cos(lat1 * Math.PI / 180) * Math.sin(lat2 * Math.PI / 180) -
-              Math.sin(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.cos(dLon);
-    const rumbo = Math.atan2(y, x) * 180 / Math.PI;
-    return (rumbo + 360) % 360;
-  };
+const iconoAuditorio = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41]
+});
 
-  // Obtener dirección cardinal
-  const obtenerDireccion = (rumbo) => {
-    const direcciones = ['Norte ⬆️', 'Noreste ↗️', 'Este ➡️', 'Sureste ↘️', 'Sur ⬇️', 'Suroeste ↙️', 'Oeste ⬅️', 'Noroeste ↖️'];
-    const index = Math.round(rumbo / 45) % 8;
-    return direcciones[index];
-  };
+const iconoUsuario = new L.Icon({
+  iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41]
+});
 
-  // Generar instrucciones
-  const generarInstrucciones = () => {
-    if (!salon || !ubicacionUsuario) return;
+// Función para seleccionar icono según tipo
+const obtenerIcono = (tipo) => {
+  switch (tipo) {
+    case 'laboratorio':
+      return iconoLaboratorio;
+    case 'auditorio':
+      return iconoAuditorio;
+    default:
+      return iconoAula;
+  }
+};
 
-    const distKm = calcularDistancia(
-      ubicacionUsuario.lat,
-      ubicacionUsuario.lng,
-      salon.ubicacion.coordinates[1],
-      salon.ubicacion.coordinates[0]
-    );
-
-    const rumbo = calcularRumbo(
-      ubicacionUsuario.lat,
-      ubicacionUsuario.lng,
-      salon.ubicacion.coordinates[1],
-      salon.ubicacion.coordinates[0]
-    );
-
-    const tiempoMinutos = Math.ceil((distKm / 1.4) * 60); // Asumir 1.4 km/h de velocidad de caminata
-
-    setDistancia(distKm);
-    setTiempo(tiempoMinutos);
-
-    const pasos = [
-      {
-        paso: 1,
-        titulo: 'Inicio',
-        descripcion: `Dirígete hacia ${obtenerDireccion(rumbo)}`,
-        distancia: (distKm * 0.3).toFixed(2),
-        icono: '📍'
-      },
-      {
-        paso: 2,
-        titulo: 'En camino',
-        descripcion: `Continúa ${obtenerDireccion(rumbo)} por aproximadamente ${(distKm * 0.4).toFixed(2)} km`,
-        distancia: (distKm * 0.4).toFixed(2),
-        icono: '🚶'
-      },
-      {
-        paso: 3,
-        titulo: 'Casi llegas',
-        descripcion: `Ya estás cerca, sigue ${obtenerDireccion(rumbo)} hacia tu destino`,
-        distancia: (distKm * 0.3).toFixed(2),
-        icono: '👀'
-      },
-      {
-        paso: 4,
-        titulo: '¡Llegaste!',
-        descripcion: `Haz llegado a ${salon.nombre}. ${salon.tipo === 'baño' ? 'Puerta a tu derecha' : salon.tipo === 'comedor' ? 'Bienvenido al comedor' : 'Bienvenido al ' + salon.tipo}`,
-        distancia: '0.00',
-        icono: '🎉'
-      }
-    ];
-
-    setInstrucciones(pasos);
-  };
-
-  // Reproducir audio
-  const reproducirAudio = (texto) => {
-    if (!sonidoActivo) return;
-    
-    const utterance = new SpeechSynthesisUtterance(texto);
-    utterance.lang = 'es-ES';
-    utterance.rate = 1.2;
-    window.speechSynthesis.speak(utterance);
-  };
-
-  // Iniciar navegación
-  const iniciarNavegacion = () => {
-    setNavegando(true);
-    setPasoActual(0);
-    generarInstrucciones();
-    onNavigationStart && onNavigationStart(true);
-    reproducirAudio(`Iniciando navegación hacia ${salon.nombre}`);
-  };
-
-  // Detener navegación
-  const detenerNavegacion = () => {
-    setNavegando(false);
-    setPasoActual(0);
-    window.speechSynthesis.cancel();
-    onNavigationStart && onNavigationStart(false);
-  };
-
-  // Avanzar al siguiente paso
-  const siguientePaso = () => {
-    if (pasoActual < instrucciones.length - 1) {
-      const siguiente = pasoActual + 1;
-      setPasoActual(siguiente);
-      reproducirAudio(instrucciones[siguiente].descripcion);
+// Componente para centrar el mapa en un salón seleccionado
+const CentroMapa = ({ lat, lng, zoom = 18 }) => {
+  const map = useMap();
+  useEffect(() => {
+    if (lat && lng) {
+      map.setView([lat, lng], zoom);
     }
-  };
+  }, [lat, lng, zoom, map]);
+  return null;
+};
 
-  // Volver al paso anterior
-  const pasoPrevio = () => {
-    if (pasoActual > 0) {
-      const anterior = pasoActual - 1;
-      setPasoActual(anterior);
-      reproducirAudio(instrucciones[anterior].descripcion);
+export default function MapComponent({ 
+  salones = [], 
+  salonSeleccionado = null, 
+  mostrarUbicacionUsuario = true,
+  onSalonClick = null 
+}) {
+  const [ubicacionUsuario, setUbicacionUsuario] = useState(null);
+  const [cargando, setCargando] = useState(true);
+
+  // Obtener ubicación del usuario
+  useEffect(() => {
+    if (mostrarUbicacionUsuario) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setUbicacionUsuario({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude
+          });
+          setCargando(false);
+        },
+        (error) => {
+          console.warn('No se pudo obtener la ubicación:', error);
+          // Centro por defecto (SENATI Lima - CAMBIA ESTO A TU UBICACIÓN REAL)
+          // Obtén tus coordenadas en: https://www.google.com/maps
+          setUbicacionUsuario({
+            lat: -12.0464,  // Cambia esto a tu latitud
+            lng: -77.0428   // Cambia esto a tu longitud
+          });
+          setCargando(false);
+        }
+      );
+    } else {
+      setCargando(false);
     }
-  };
+  }, [mostrarUbicacionUsuario]);
+
+  if (cargando) {
+    return <div className="w-full h-full flex items-center justify-center">Cargando mapa...</div>;
+  }
+
+  const centro = salonSeleccionado 
+    ? [salonSeleccionado.ubicacion.coordinates[1], salonSeleccionado.ubicacion.coordinates[0]]
+    : ubicacionUsuario 
+    ? [ubicacionUsuario.lat, ubicacionUsuario.lng]
+    : [-12.0464, -77.0428];
 
   return (
-    <div className="fixed bottom-4 right-4 w-96 bg-white rounded-lg shadow-2xl overflow-hidden border-2 border-blue-500 z-50">
-      {/* Header */}
-      <div className="bg-linear-to-r from-blue-600 to-blue-700 text-white p-4 flex justify-between items-start">
-        <div className="flex-1">
-          <h2 className="text-xl font-bold">{salon?.nombre}</h2>
-          <p className="text-blue-100 text-sm mt-1">
-            {salon?.tipo.toUpperCase()} • {salon?.edificio} • Piso {salon?.piso}
-          </p>
-        </div>
-        <button
-          onClick={onClose}
-          className="text-white hover:bg-blue-800 p-2 rounded transition"
-        >
-          <X size={24} />
-        </button>
-      </div>
+    <MapContainer 
+      center={centro} 
+      zoom={18} 
+      className="w-full h-full rounded-lg"
+    >
+      <TileLayer
+        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+      />
 
-      {/* Contenido */}
-      <div className="p-4 max-h-96 overflow-y-auto">
-        {!navegando ? (
-          // Vista previa
-          <div className="space-y-4">
-            <div className="bg-blue-50 p-4 rounded-lg">
-              <p className="text-gray-700 mb-2">{salon?.descripcion}</p>
-              {salon?.capacidad && (
-                <p className="text-sm text-gray-600">👥 Capacidad: {salon.capacidad} personas</p>
-              )}
-              {salon?.contacto && (
-                <p className="text-sm text-gray-600">📞 {salon.contacto}</p>
-              )}
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="bg-gray-100 p-3 rounded text-center">
-                <p className="text-2xl font-bold text-blue-600">{distancia?.toFixed(2)}</p>
-                <p className="text-xs text-gray-600">km de distancia</p>
+      {/* Ubicación del usuario */}
+      {ubicacionUsuario && (
+        <>
+          <Marker 
+            position={[ubicacionUsuario.lat, ubicacionUsuario.lng]} 
+            icon={iconoUsuario}
+          >
+            <Popup>
+              <div className="text-center">
+                <p className="font-bold">Tu ubicación</p>
+                <p className="text-sm text-gray-600">
+                  {ubicacionUsuario.lat.toFixed(4)}, {ubicacionUsuario.lng.toFixed(4)}
+                </p>
               </div>
-              <div className="bg-gray-100 p-3 rounded text-center">
-                <p className="text-2xl font-bold text-blue-600">{tiempo}</p>
-                <p className="text-xs text-gray-600">minutos aprox.</p>
-              </div>
-            </div>
+            </Popup>
+          </Marker>
+          <Circle 
+            center={[ubicacionUsuario.lat, ubicacionUsuario.lng]} 
+            radius={50}
+            pathOptions={{ color: 'green', fillOpacity: 0.1 }}
+          />
+        </>
+      )}
 
-            <button
-              onClick={iniciarNavegacion}
-              className="w-full bg-linear-to-r from-green-500 to-green-600 text-white py-3 rounded-lg font-bold flex items-center justify-center gap-2 hover:shadow-lg transition"
-            >
-              <Navigation size={20} />
-              Iniciar Navegación
-            </button>
-          </div>
-        ) : (
-          // Vista de navegación
-          <div className="space-y-4">
-            {instrucciones.length > 0 && (
-              <>
-                {/* Progreso */}
-                <div className="bg-blue-50 p-3 rounded-lg">
-                  <div className="flex justify-between mb-2">
-                    <span className="text-sm font-semibold text-gray-700">
-                      Paso {pasoActual + 1} de {instrucciones.length}
-                    </span>
-                    <span className="text-sm text-gray-600">
-                      {Math.round(((pasoActual + 1) / instrucciones.length) * 100)}%
-                    </span>
-                  </div>
-                  <div className="w-full bg-gray-300 rounded-full h-2">
-                    <div
-                      className="bg-linear-to-r from-green-500 to-blue-500 h-2 rounded-full transition-all duration-300"
-                      style={{ width: `${((pasoActual + 1) / instrucciones.length) * 100}%` }}
-                    />
-                  </div>
-                </div>
-
-                {/* Instrucción actual */}
-                <div className="bg-linear-to-br from-blue-50 to-green-50 p-4 rounded-lg border-2 border-green-400">
-                  <p className="text-3xl mb-2">{instrucciones[pasoActual].icono}</p>
-                  <h3 className="text-lg font-bold text-gray-800 mb-2">
-                    {instrucciones[pasoActual].titulo}
-                  </h3>
-                  <p className="text-gray-700 mb-2">{instrucciones[pasoActual].descripcion}</p>
-                  <p className="text-sm text-gray-600">
-                    📏 Distancia: {instrucciones[pasoActual].distancia} km
+      {/* Marcadores de salones */}
+      {salones.map((salon) => {
+        const lat = salon.ubicacion.coordinates[1];
+        const lng = salon.ubicacion.coordinates[0];
+        return (
+          <Marker 
+            key={salon._id} 
+            position={[lat, lng]} 
+            icon={obtenerIcono(salon.tipo)}
+            eventHandlers={{
+              click: () => onSalonClick && onSalonClick(salon)
+            }}
+          >
+            <Popup>
+              <div className="w-48">
+                <h3 className="font-bold text-lg mb-2">{salon.nombre}</h3>
+                <p className="text-sm text-gray-700 mb-1">
+                  <span className="font-semibold">Tipo:</span> {salon.tipo}
+                </p>
+                <p className="text-sm text-gray-700 mb-1">
+                  <span className="font-semibold">Piso:</span> {salon.piso}
+                </p>
+                <p className="text-sm text-gray-700 mb-1">
+                  <span className="font-semibold">Edificio:</span> {salon.edificio}
+                </p>
+                {salon.capacidad && (
+                  <p className="text-sm text-gray-700 mb-1">
+                    <span className="font-semibold">Capacidad:</span> {salon.capacidad} personas
                   </p>
-                </div>
+                )}
+                {salon.descripcion && (
+                  <p className="text-sm text-gray-600 mt-2">{salon.descripcion}</p>
+                )}
+              </div>
+            </Popup>
+          </Marker>
+        );
+      })}
 
-                {/* Botones de navegación */}
-                <div className="flex gap-2">
-                  <button
-                    onClick={pasoPrevio}
-                    disabled={pasoActual === 0}
-                    className="flex-1 bg-gray-400 text-white py-2 rounded font-semibold disabled:opacity-50 hover:bg-gray-500 transition"
-                  >
-                    ← Anterior
-                  </button>
-                  <button
-                    onClick={siguientePaso}
-                    disabled={pasoActual === instrucciones.length - 1}
-                    className="flex-1 bg-blue-500 text-white py-2 rounded font-semibold disabled:opacity-50 hover:bg-blue-600 transition"
-                  >
-                    Siguiente →
-                  </button>
-                </div>
+      {/* Ruta desde ubicación del usuario al salón seleccionado */}
+      {ubicacionUsuario && salonSeleccionado && (
+        <Polyline
+          positions={[
+            [ubicacionUsuario.lat, ubicacionUsuario.lng],
+            [salonSeleccionado.ubicacion.coordinates[1], salonSeleccionado.ubicacion.coordinates[0]]
+          ]}
+          pathOptions={{
+            color: '#3B82F6',
+            weight: 4,
+            opacity: 0.8,
+            dashArray: '5, 5',
+            lineCap: 'round',
+            lineJoin: 'round'
+          }}
+        />
+      )}
 
-                {/* Control de audio */}
-                <button
-                  onClick={() => setSonidoActivo(!sonidoActivo)}
-                  className={`w-full py-2 rounded font-semibold flex items-center justify-center gap-2 transition ${
-                    sonidoActivo
-                      ? 'bg-purple-500 text-white hover:bg-purple-600'
-                      : 'bg-gray-300 text-gray-700 hover:bg-gray-400'
-                  }`}
-                >
-                  {sonidoActivo ? <Volume2 size={18} /> : <VolumeX size={18} />}
-                  {sonidoActivo ? 'Sonido Activado' : 'Sonido Desactivado'}
-                </button>
-              </>
-            )}
-
-            {/* Botón detener */}
-            <button
-              onClick={detenerNavegacion}
-              className="w-full bg-red-500 text-white py-2 rounded font-bold hover:bg-red-600 transition"
-            >
-              ✕ Detener Navegación
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
+      {/* Centro el mapa si hay salón seleccionado */}
+      {salonSeleccionado && (
+        <CentroMapa 
+          lat={salonSeleccionado.ubicacion.coordinates[1]} 
+          lng={salonSeleccionado.ubicacion.coordinates[0]} 
+          zoom={19}
+        />
+      )}
+    </MapContainer>
   );
 }
